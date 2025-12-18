@@ -27,11 +27,12 @@ function App() {
         [field]: limitedValue
       }));
     } else if (field === 'uscNo') {
-      // Only allow numbers for USC NO
+      // Only allow numbers and limit to 13 digits
       const numericValue = value.replace(/\D/g, ''); // Remove all non-digit characters
+      const limitedValue = numericValue.slice(0, 13); // Limit to 13 digits
       setFormData(prev => ({
         ...prev,
-        [field]: numericValue
+        [field]: limitedValue
       }));
     } else {
       setFormData(prev => ({
@@ -55,6 +56,12 @@ function App() {
     // Validate Aadhaar number is exactly 12 digits
     if (formData.aadhaarNumber.length !== 12) {
       alert('Please enter a valid 12-digit Aadhaar number before saving.');
+      return;
+    }
+
+    // Validate USC NO is exactly 13 digits
+    if (formData.uscNo.length !== 13) {
+      alert('Please enter a valid 13-digit USC NO before saving.');
       return;
     }
 
@@ -175,6 +182,7 @@ function App() {
                   className="input-field"
                   value={formData.uscNo}
                   onChange={(e) => handleChange('uscNo', e.target.value)}
+                  maxLength={13}
                   inputMode="numeric"
                   pattern="[0-9]*"
                 />
@@ -187,7 +195,7 @@ function App() {
         <button 
           className="save-button" 
           onClick={handleSave}
-          disabled={formData.aadhaarNumber.length !== 12}
+          disabled={formData.aadhaarNumber.length !== 12 || formData.uscNo.length !== 13}
         >
           Save
         </button>
