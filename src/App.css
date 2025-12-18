@@ -25,6 +25,29 @@
   box-sizing: border-box;
 }
 
+/* Fixed dimensions for consistent image capture */
+.aadhaar-form.capturing {
+  width: 600px !important;
+  max-width: 600px !important;
+  min-width: 600px !important;
+  font-size: 16px !important;
+}
+
+.aadhaar-form.capturing .details-table {
+  width: 100% !important;
+  table-layout: fixed !important;
+}
+
+.aadhaar-form.capturing .label-cell,
+.aadhaar-form.capturing .input-cell {
+  width: auto !important;
+  font-size: inherit !important;
+}
+
+.aadhaar-form.capturing .form-title {
+  font-size: 1.1rem !important;
+}
+
 .form-title {
   font-size: 1.1rem;
   font-weight: bold;
@@ -148,6 +171,14 @@
   
   .aadhaar-form {
     max-width: 100%;
+  }
+  
+  /* Ensure form doesn't shrink during capture on mobile */
+  .aadhaar-form.capturing {
+    width: 600px !important;
+    max-width: 600px !important;
+    min-width: 600px !important;
+    margin: 0 auto;
   }
 }
 

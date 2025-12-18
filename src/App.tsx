@@ -56,6 +56,9 @@ function App() {
       // @ts-ignore - html2canvas types may not be available
       const html2canvas = (await import('html2canvas')).default;
       
+      // Add capturing class to lock dimensions
+      formRef.current.classList.add('capturing');
+      
       // Convert inputs to display text temporarily
       const inputs = formRef.current.querySelectorAll('.input-field');
       
@@ -70,17 +73,32 @@ function App() {
         span.style.letterSpacing = '0.05em';
         span.style.display = 'inline-block';
         span.style.minHeight = '24px';
+        span.style.width = '100%';
         htmlInput.style.display = 'none';
         htmlInput.parentElement?.appendChild(span);
       });
 
-      // Capture the form as image
+      // Wait a moment for styles to apply
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Capture the form as image with fixed dimensions
       const canvas = await html2canvas(formRef.current, {
         backgroundColor: '#ffffff',
         scale: 2,
         logging: false,
-        useCORS: true
+        useCORS: true,
+        allowTaint: false,
+        removeContainer: false,
+        ignoreElements: (element) => {
+          // Ignore buttons and other elements outside the form
+          return element.classList.contains('button-container') || 
+                 element.classList.contains('save-button') || 
+                 element.classList.contains('clear-button');
+        }
       });
+
+      // Remove capturing class
+      formRef.current.classList.remove('capturing');
 
       // Restore inputs
       inputs.forEach((input) => {
