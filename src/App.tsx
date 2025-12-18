@@ -26,6 +26,13 @@ function App() {
         ...prev,
         [field]: limitedValue
       }));
+    } else if (field === 'uscNo') {
+      // Only allow numbers for USC NO
+      const numericValue = value.replace(/\D/g, ''); // Remove all non-digit characters
+      setFormData(prev => ({
+        ...prev,
+        [field]: numericValue
+      }));
     } else {
       setFormData(prev => ({
         ...prev,
@@ -168,6 +175,8 @@ function App() {
                   className="input-field"
                   value={formData.uscNo}
                   onChange={(e) => handleChange('uscNo', e.target.value)}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                 />
               </td>
             </tr>
