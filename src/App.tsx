@@ -14,7 +14,13 @@ function App() {
     uscNo: ''
   });
 
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
   const formRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const handleChange = (field: keyof AadhaarDetails, value: string) => {
     // Special validation for Aadhaar number field
@@ -48,6 +54,210 @@ function App() {
       name: '',
       uscNo: ''
     });
+  };
+
+  const extractAadhaarData = (text: string) => {
+    // Extract 12-digit Aadhaar number
+    const aadhaarMatch = text.match(/\b\d{4}\s?\d{4}\s?\d{4}\b|\b\d{12}\b/);
+    let aadhaarNumber = '';
+    if (aadhaarMatch) {
+      aadhaarNumber = aadhaarMatch[0].replace(/\s/g, '');
+    }
+
+    // Extract name - usually appears before or after "Government of India" or near the top
+    // Common patterns: Name appears in uppercase, often on a separate line
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    let name = '';
+    
+    // Look for name patterns (usually uppercase, 2-30 characters, contains letters)
+    for (const line of lines) {
+      // Skip common Aadhaar card text
+      if (line.match(/GOVERNMENT OF INDIA|AADHAAR|ENROLLMENT|UIDAI|DOB|YOB|MALE|FEMALE|ADDRESS/i)) {
+        continue;
+      }
+      // Look for lines that are mostly uppercase letters (name pattern)
+      if (line.match(/^[A-Z\s]{2,30}$/) && !line.match(/^\d+$/)) {
+        name = line;
+        break;
+      }
+    }
+
+    return { aadhaarNumber, name };
+  };
+
+  const handleScan = async () => {
+    try {
+      // Check if running on HTTP (not HTTPS)
+      const isSecureContext = window.isSecureContext || location.protocol === 'https:';
+      
+      if (!isSecureContext) {
+        const useNgrok = confirm(
+          'Camera access requires HTTPS connection.\n\n' +
+          'Options:\n' +
+          '1. Use ngrok for HTTPS (Recommended)\n' +
+          '2. Try enabling insecure camera access in browser settings\n\n' +
+          'Would you like instructions for ngrok?'
+        );
+        
+        if (useNgrok) {
+          alert(
+            'To use camera on mobile:\n\n' +
+            '1. Install ngrok: https://ngrok.com/download\n' +
+            '2. Run: ngrok http 5173\n' +
+            '3. Use the HTTPS URL from ngrok on your mobile\n\n' +
+            'Or use the local network IP with HTTPS if available.'
+          );
+        }
+        return;
+      }
+
+      // Check if getUserMedia is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Camera API is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Safari.');
+        return;
+      }
+
+      // Request camera access
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          facingMode: 'environment', // Use back camera on mobile
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
+      
+      streamRef.current = stream;
+      setIsScannerOpen(true);
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (error: any) {
+      console.error('Error accessing camera:', error);
+      
+      let errorMessage = 'Unable to access camera. ';
+      
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorMessage += 'Please grant camera permissions in your browser settings.';
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        errorMessage += 'No camera found on this device.';
+      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+        errorMessage += 'Camera is being used by another application.';
+      } else if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
+        errorMessage += 'Camera does not support the required settings.';
+      } else if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        errorMessage += 'Camera requires HTTPS connection. Please use ngrok or deploy to test camera features.';
+      } else {
+        errorMessage += `Error: ${error.message || 'Unknown error'}`;
+      }
+      
+      alert(errorMessage);
+    }
+  };
+
+  const captureAndScan = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    setIsScanning(true);
+    setScanProgress(0);
+
+    try {
+      // Capture frame from video
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0);
+      }
+
+      // Stop camera stream
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      setIsScannerOpen(false);
+
+      // Convert canvas to image for OCR
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setIsScanning(false);
+          return;
+        }
+
+        try {
+          // Dynamically import Tesseract
+          const { createWorker } = await import('tesseract.js');
+          const worker = await createWorker('eng');
+          
+          setScanProgress(30);
+
+          // Perform OCR with progress tracking
+          const progressInterval = setInterval(() => {
+            setScanProgress(prev => {
+              if (prev < 80) return prev + 5;
+              return prev;
+            });
+          }, 200);
+
+          const { data: { text } } = await worker.recognize(blob);
+          
+          clearInterval(progressInterval);
+          setScanProgress(90);
+
+          // Extract data from OCR text
+          const extractedData = extractAadhaarData(text);
+          
+          // Update form with extracted data
+          if (extractedData.aadhaarNumber) {
+            setFormData(prev => ({
+              ...prev,
+              aadhaarNumber: extractedData.aadhaarNumber.slice(0, 12)
+            }));
+          }
+          
+          if (extractedData.name) {
+            setFormData(prev => ({
+              ...prev,
+              name: extractedData.name
+            }));
+          }
+
+          await worker.terminate();
+          setScanProgress(100);
+
+          // Show success message
+          if (extractedData.aadhaarNumber || extractedData.name) {
+            alert(`Scanned successfully!\n${extractedData.aadhaarNumber ? 'Aadhaar Number: ' + extractedData.aadhaarNumber + '\n' : ''}${extractedData.name ? 'Name: ' + extractedData.name : ''}\n\nPlease verify and complete the remaining fields.`);
+          } else {
+            alert('Could not extract Aadhaar details. Please try again or enter manually.');
+          }
+        } catch (error) {
+          console.error('OCR Error:', error);
+          alert('Error processing image. Please try again or enter manually.');
+        } finally {
+          setIsScanning(false);
+          setScanProgress(0);
+        }
+      }, 'image/jpeg', 0.9);
+    } catch (error) {
+      console.error('Capture Error:', error);
+      alert('Error capturing image. Please try again.');
+      setIsScanning(false);
+      setScanProgress(0);
+    }
+  };
+
+  const closeScanner = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsScannerOpen(false);
+    setIsScanning(false);
+    setScanProgress(0);
   };
 
   const handleSave = async () => {
@@ -193,6 +403,13 @@ function App() {
       </div>
       <div className="button-container">
         <button 
+          className="scan-button" 
+          onClick={handleScan}
+          disabled={isScannerOpen || isScanning}
+        >
+          📷 Scan Aadhaar Card
+        </button>
+        <button 
           className="save-button" 
           onClick={handleSave}
           disabled={formData.aadhaarNumber.length !== 12 || formData.uscNo.length !== 13}
@@ -201,6 +418,37 @@ function App() {
         </button>
         <button className="clear-button" onClick={handleClear}>Clear</button>
       </div>
+
+      {/* Scanner Modal */}
+      {isScannerOpen && (
+        <div className="scanner-modal">
+          <div className="scanner-content">
+            <div className="scanner-header">
+              <h3>Scan Aadhaar Card</h3>
+              <button className="close-scanner" onClick={closeScanner}>×</button>
+            </div>
+            <div className="scanner-video-container">
+              <video ref={videoRef} autoPlay playsInline className="scanner-video" />
+              <canvas ref={canvasRef} style={{ display: 'none' }} />
+              <div className="scanner-overlay">
+                <div className="scanner-frame"></div>
+                <p className="scanner-instructions">Position the Aadhaar card within the frame</p>
+              </div>
+            </div>
+            <div className="scanner-actions">
+              <button className="capture-button" onClick={captureAndScan} disabled={isScanning}>
+                {isScanning ? 'Processing...' : 'Capture & Scan'}
+              </button>
+              {isScanning && (
+                <div className="scan-progress">
+                  <div className="progress-bar" style={{ width: `${scanProgress}%` }}></div>
+                  <p>Scanning: {Math.round(scanProgress)}%</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
